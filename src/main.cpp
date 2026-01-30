@@ -2,7 +2,7 @@
 #include "utils.h"
 #include "api_interface.h"
 #include "vibrating_wire.h"
-#include "lora_network.h"
+// #include "lora_network.h"  // Disabled - no LoRa needed
 #include "configuration.h"
 #include "mqtt.h"
 
@@ -31,18 +31,35 @@ void setup() {
   pinMode(TRIGGER_PIN, INPUT_PULLUP);// Pin setting for wifi manager push button
   pinMode(LED,OUTPUT);// onboard blue LED inidcator
   spiffs_init();
-  sd_init();
+  // SD card initialization - optional (commented out for no-SD-card mode)
+  // sd_init();
 
+  // Uncomment the line below to clear saved WiFi config and use new defaults
+  // clear_system_configuration();
+  
   load_system_configuration();
   loadDataConfigFromPreferences();
 
   Serial.println("\n*** Connectivity ***");
   // wifi_setting_reset();
   wifi_init();
+  
+  // Create WiFi keepalive task to maintain connection
+  xTaskCreate(
+    wifiKeepaliveTask,      // Task function
+    "wifiKeepaliveTask",    // Name of the task
+    4096,                   // Stack size
+    NULL,                   // Task input parameter
+    1,                      // Priority
+    NULL                    // Task handle
+  );
+  
   xTaskCreate(taskInitiNTP, "InitNTPTask", 4096, NULL, 1, NULL);
   start_http_server();// start Async server with api-interfaces
-  ftp_server_init();
-  lora_initialize();
+  // FTP server - optional (commented out for no-SD-card mode)
+  // ftp_server_init();
+  // LoRa initialization - disabled (not needed)
+  // lora_initialize();
   log_data_init();
 
   mqtt_initialize();
@@ -53,5 +70,7 @@ void setup() {
 
 void loop() {
   ElegantOTA.loop();
-  ftp.handle();
+  // FTP server - optional (commented out for no-SD-card mode)
+  // ftp.handle();
+  // MQTT client loop is handled in mqtt.cpp tasks
 }

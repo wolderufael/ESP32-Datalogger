@@ -1,14 +1,15 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <Wire.h>
-#include <SD.h>
+// #include <SD.h>  // Disabled - no SD card needed
 #include "configuration.h"
-#include "LoRaLite.h"
+// #include "LoRaLite.h"  // Disabled - no LoRa needed
 
-// Credentials
-const char* mqtt_server = "192.168.0.250";
-const char* mqtt_user = "senselynk";
-const char* mqtt_password = "senselynk";
+// MQTT credentials - now loaded from systemConfig
+// These are kept for backward compatibility but will be overridden
+const char* mqtt_server_default = "192.168.8.1";
+const char* mqtt_user_default = "senselynk";
+const char* mqtt_password_default = "senselynk";
 
 // Public Variables
 WiFiClient espClient;
@@ -33,26 +34,47 @@ bool safe_mqtt_publish(const char* topic, const char* payload) {
 // * MQTT Reconnect
 // ***********************************
 void mqtt_reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
-      Serial.println("connected");
-      // Subscribe
-      client.subscribe("esp32/output");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-    }
+  // Don't try to reconnect if already connected
+  if (client.connected()) {
+    return;
+  }
+  
+  // Check if WiFi is connected first
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("MQTT: WiFi not connected, skipping MQTT reconnect");
+    return;
+  }
+  
+  Serial.print("Attempting MQTT connection...");
+  
+  // Get MQTT credentials from systemConfig
+  const char* mqtt_server = (strlen(systemConfig.MQTT_SERVER) > 0) ? systemConfig.MQTT_SERVER : mqtt_server_default;
+  const char* mqtt_user = (strlen(systemConfig.MQTT_USER) > 0) ? systemConfig.MQTT_USER : mqtt_user_default;
+  const char* mqtt_password = (strlen(systemConfig.MQTT_PASSWORD) > 0) ? systemConfig.MQTT_PASSWORD : mqtt_password_default;
+  
+  Serial.printf(" to %s...", mqtt_server);
+  
+  // Update server if changed
+  client.setServer(mqtt_server, 1883);
+  
+  // Attempt to connect with timeout
+  if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
+    Serial.println("connected");
+    // Subscribe
+    client.subscribe("esp32/output");
+  } else {
+    Serial.print("failed, rc=");
+    Serial.print(client.state());
+    Serial.println(" try again later");
+    // Don't loop here - let the keepalive task handle retries
   }
 }
 
 // ***********************************
 // MQTT Publish data from specified file
+// NOTE: Disabled - SD card not used in this configuration
 // ***********************************
+/*
 int mqtt_process_file(String filename, String DeviceName) {
 
     // mqtt client prepare
@@ -176,11 +198,13 @@ int mqtt_process_file(String filename, String DeviceName) {
     Serial.println(" KB/s");
     return 0;
 }
-
+*/
 
 // **************************************
 // * Send All .dat File From Folder
+// NOTE: Disabled - SD card not used in this configuration
 // **************************************
+/*
 bool mqtt_process_folder(String folderPath, String extension, String DeviceName){
   File root = SD.open(folderPath);
 
@@ -215,6 +239,7 @@ bool mqtt_process_folder(String folderPath, String extension, String DeviceName)
   root.close();
   return 0;
 }
+*/
 
 void publish_system_status() {
   if (!client.connected()) {
@@ -258,7 +283,9 @@ void publish_system_status() {
 
 // *********************************************************
 // MQTT Publish for All .dat files (Gateway and Slave)
+// NOTE: Disabled - SD card and LoRa not used in this configuration
 // *********************************************************
+/*
 void processFileTask(void * parameter) {
   while (true)
   {
@@ -275,6 +302,7 @@ void processFileTask(void * parameter) {
     }
   }
 }
+*/
 
 // *********************************************************
 // MQTT Publish for System Information
@@ -282,7 +310,32 @@ void processFileTask(void * parameter) {
 void systemInfoTask(void * parameter) {
   while (true){
     publish_system_status();
-    vTaskDelay(1000/portTICK_PERIOD_MS);
+    vTaskDelay(60000/portTICK_PERIOD_MS);  // Publish status every 60 seconds
+  }
+}
+
+// *********************************************************
+// MQTT Keepalive Task - maintains connection
+// *********************************************************
+void mqttKeepaliveTask(void * parameter) {
+  unsigned long lastReconnectAttempt = 0;
+  const unsigned long reconnectInterval = 5000; // Try every 5 seconds
+  
+  while (true) {
+    // Only try to reconnect if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+      if (!client.connected()) {
+        unsigned long now = millis();
+        if (now - lastReconnectAttempt > reconnectInterval) {
+          lastReconnectAttempt = now;
+          mqtt_reconnect();
+        }
+      } else {
+        // If connected, process MQTT messages
+        client.loop();
+      }
+    }
+    vTaskDelay(1000/portTICK_PERIOD_MS);  // Check every second
   }
 }
 
@@ -292,27 +345,80 @@ void systemInfoTask(void * parameter) {
  *                                                                *
  ******************************************************************/
 
+// *********************************************************
+// Publish sensor data directly to MQTT (no SD card)
+// *********************************************************
+bool publish_sensor_data(int channel, const char* sensorType, float value, const char* timestamp) {
+  if (!client.connected()) {
+    mqtt_reconnect();
+  }
+  client.loop();
+  
+  // Create JSON payload
+  String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
+  String payload = "{";
+  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
+  payload += "\"channel\":" + String(channel) + ",";
+  payload += "\"sensorType\":\"" + String(sensorType) + "\",";
+  payload += "\"value\":" + String(value, 2) + ",";
+  payload += "\"timestamp\":\"" + String(timestamp) + "\"";
+  payload += "}";
+  
+  if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
+    Serial.printf("Published: Channel %d, Value: %.2f\n", channel, value);
+    return true;
+  } else {
+    Serial.printf("Failed to publish sensor data for channel %d\n", channel);
+    return false;
+  }
+}
+
+// Function to reinitialize MQTT with new server settings
+void mqtt_reinit() {
+  const char* mqtt_server = (strlen(systemConfig.MQTT_SERVER) > 0) ? systemConfig.MQTT_SERVER : mqtt_server_default;
+  client.setServer(mqtt_server, 1883);
+  Serial.printf("MQTT server updated to: %s\n", mqtt_server);
+  // Disconnect and let reconnect task handle reconnection
+  if (client.connected()) {
+    client.disconnect();
+  }
+}
+
 void mqtt_initialize() {
+  // Get MQTT server from systemConfig or use default
+  const char* mqtt_server = (strlen(systemConfig.MQTT_SERVER) > 0) ? systemConfig.MQTT_SERVER : mqtt_server_default;
   client.setServer(mqtt_server, 1883);
   client.setBufferSize(mqtt_buffer_size);
+  Serial.printf("MQTT initialized with server: %s\n", mqtt_server);
 
   // Create a mutex for MQTT client access
   mqttMutex = xSemaphoreCreateMutex();
 
-  // Create the task to process the file
+  // Create the task to process the file (only if SD card is available)
+  // Commented out for no-SD-card mode
+  // xTaskCreate(
+  //   processFileTask,      // Task function
+  //   "ProcessFileTask",    // Name of the task (for debugging)
+  //   4 * 4096,                 // Stack size in words
+  //   NULL,                 // Task input parameter
+  //   1,                    // Priority of the task
+  //   NULL                  // Task handle (can be NULL if not needed)
+  // );
+
+  // Create the task for system status publishing
   xTaskCreate(
-    processFileTask,      // Task function
-    "ProcessFileTask",    // Name of the task (for debugging)
-    4 * 4096,                 // Stack size in words
+    systemInfoTask,      // Task function
+    "systemInfoTask",    // Name of the task (for debugging)
+    4096,                 // Stack size in words
     NULL,                 // Task input parameter
     1,                    // Priority of the task
     NULL                  // Task handle (can be NULL if not needed)
   );
 
-  // Create the task to process the file
+  // Create the task to keep MQTT connection alive
   xTaskCreate(
-    systemInfoTask,      // Task function
-    "systemInfoTask",    // Name of the task (for debugging)
+    mqttKeepaliveTask,   // Task function
+    "mqttKeepaliveTask", // Name of the task (for debugging)
     4096,                 // Stack size in words
     NULL,                 // Task input parameter
     1,                    // Priority of the task

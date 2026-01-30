@@ -230,7 +230,8 @@ int lora_initialize(){
 
     lora_config.lora_mode = systemConfig.LORA_MODE;
     lora_config.pairingKey = systemConfig.PAIRING_KEY;
-    lora_config.deviceName = systemConfig.DEVICE_NAME;
+    strncpy(lora_config.deviceName, systemConfig.DEVICE_NAME, sizeof(lora_config.deviceName) - 1);
+    lora_config.deviceName[sizeof(lora_config.deviceName) - 1] = '\0';
 
     addHandler(&lora_config, TIME_SYNC, (LoRaMessageHandlerFunc)handle_time_sync, NULL);
     addHandler(&lora_config, GET_CONFIG, (LoRaMessageHandlerFunc)handle_config_poll, NULL);

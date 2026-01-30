@@ -4,6 +4,7 @@
 #include "configuration.h"
 #include "fileserver.h"
 #include "LoRaLite.h"
+#include "lora_network.h"
 
 AsyncWebServer server(80);
 
@@ -30,6 +31,12 @@ AsyncCallbackJsonWebHandler *updateCollectionConfig();
 
 void start_http_server(){
   Serial.println("\n*** Starting Server ***");
+  
+  // Add error handler to prevent crashes
+  server.onNotFound([](AsyncWebServerRequest *request){
+    request->send(404, "text/plain", "Not found");
+  });
+  
   ElegantOTA.begin(&server);
 
 // **************************************
@@ -57,8 +64,11 @@ void start_http_server(){
 // **************************************
 // * FileServer
 // **************************************
-  fileserver_init();
+  // Commented out fileserver_init() to avoid conflicts and memory issues
+  // fileserver_init();
+  
   server.begin();  // Start server
+  Serial.println("HTTP Server started on port 80");
 }
 
 /******************************************************************
@@ -96,21 +106,41 @@ void serveJson(AsyncWebServerRequest *request, JsonDocument doc, int responseCod
  ******************************************************************/
 
 void serveIndexPage(AsyncWebServerRequest *request) {
-
-  File file = SPIFFS.open("/build/index.html", "r");
-
-  if (!file) {
-    request->send(404, "text/plain", "File not found");
-  } else {
-    size_t fileSize = file.size();
-    String fileContent;
-    fileContent.reserve(fileSize);
-    while (file.available()) {
-      fileContent += char(file.read());
-    }
-    request->send(200, "text/html", fileContent);
-  }
-  file.close();
+  // Ultra-simple HTML page - no JavaScript, just links
+  const char html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html><head><title>ESP32 Logger</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:Arial;margin:20px;background:#f0f0f0;}
+.c{max-width:600px;margin:0 auto;background:#fff;padding:20px;border-radius:5px;}
+h1{color:#333;}h2{color:#555;}
+.s{margin:15px 0;padding:15px;background:#f9f9f9;border-radius:4px;}
+a{display:block;padding:10px;margin:5px 0;background:#4CAF50;color:#fff;text-decoration:none;border-radius:4px;}
+a:hover{background:#45a049;}
+</style></head><body>
+<div class="c">
+<h1>ESP32 Data Logger</h1>
+<div class="s">
+<h2>Configuration</h2>
+<p>Use the API endpoints below to configure the system:</p>
+<a href="/api/system-configuration?device=gateway">View System Config</a>
+<a href="/api/collection-configuration?device=gateway">View Collection Config</a>
+</div>
+<div class="s">
+<h2>Quick Setup - Single Phase Meter</h2>
+<p>To configure Channel 0 for Single Phase Meter, use this URL or API call:</p>
+<p style="font-size:12px;color:#666;">
+POST /api/collection-configuration/update?device=gateway<br>
+Body: {"channel":0,"type":6,"pin":4,"enabled":true,"interval":1}
+</p>
+</div>
+</div>
+</body></html>
+)rawliteral";
+  
+  // Always serve the simple page from flash to avoid memory issues
+  request->send_P(200, "text/html", html);
 }
 
 void serveJS(AsyncWebServerRequest *request) {
@@ -202,6 +232,9 @@ void getSysConfig(AsyncWebServerRequest *request){
   obj1["WIFI_SSID"] = config.WIFI_SSID;
   obj1["WIFI_PASSWORD"] = config.WIFI_PASSWORD;
   obj1["DEVICE_NAME"] = config.DEVICE_NAME;
+  obj1["MQTT_SERVER"] = config.MQTT_SERVER;
+  obj1["MQTT_USER"] = config.MQTT_USER;
+  obj1["MQTT_PASSWORD"] = config.MQTT_PASSWORD;
   obj1["LORA_MODE"] = config.LORA_MODE;
   obj1["utcOffset"] = config.utcOffset;
   obj1["PAIRING_KEY"] = config.PAIRING_KEY;
@@ -221,26 +254,23 @@ void getCollectionConfig(AsyncWebServerRequest *request) {
 
   if (!request->hasParam("device")){
     request->send(400, "application/json", "{\"error\":\"Device query parameter is missing\"}");
+    return;
   }
-    String deviceName = request->getParam("device")->value();
+  
+  String deviceName = request->getParam("device")->value();
     
   if (deviceName == "gateway") {
     config = dataConfig;
   }
   else if(isDeviceNameValid(deviceName)){
-    String filepath = "/node/" + deviceName + "/data.conf";
-    File file = SD.open(filepath, FILE_READ);
-    if (file) {
-      file.read((uint8_t*) &config, sizeof(config));
-      file.close();
-    }
-    else{
-      request->send(400, "application/json", "{\"error\":\"Configuration File not found.\"}");
-    }
+    // SD card access disabled - return error
+    request->send(400, "application/json", "{\"error\":\"SD card not available. Use gateway device.\"}");
+    return;
   }
   else {
     // Handle case where the query parameter is missing
     request->send(400, "application/json", "{\"error\":\"Invalid Device Name\"}");
+    return;
   }
 
   JsonDocument doc;
@@ -337,8 +367,14 @@ AsyncCallbackJsonWebHandler* updateCollectionConfig() {
 
     int channel = json["channel"].as<int>();
     int pin = json["pin"].as<int>();
-    int sensor= json["sensor"].as<int>();
-    bool enabled = json["enabled"].as<int>();
+    // Accept both "sensor" and "type" for compatibility
+    int sensor = 0;
+    if (json.containsKey("sensor")) {
+      sensor = json["sensor"].as<int>();
+    } else if (json.containsKey("type")) {
+      sensor = json["type"].as<int>();
+    }
+    bool enabled = json["enabled"].as<bool>();
     uint16_t interval = json["interval"].as<uint16_t>();
     
     Serial.printf("channel: %d\n", channel);

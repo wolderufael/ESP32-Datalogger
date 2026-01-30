@@ -4,6 +4,8 @@
 #include "data_logging.h"
 #include "configuration.h"
 #include "utils.h"
+#include "single_phase_meter.h"
+#include "mqtt.h"
 
 // Sensor Libs
 #include <Adafruit_Sensor.h>
@@ -18,45 +20,50 @@ float generateRandomFloat(float minVal, float maxVal) {
 }
 
 void logDataFunction(int channel, String timestamp) {
-  String filename = "/data/" + String(channel) + ".dat";
-  if (!SD.exists(filename)) {
-    File dataFile = SD.open(filename, FILE_WRITE);
-    if (dataFile) {
-        String header = "Time,Frequency (Hz),Temperature(Deg C)";
-          dataFile.println(header);
-      dataFile.close();
-    } else {
-      Serial.println("Failed to create file");
+  float sensorValue = 0.0f;
+  const char* sensorTypeStr = "Unknown";
+  
+  // Read sensor data based on sensor type
+  switch (dataConfig.type[channel]) {
+    case SinglePhaseMeter:
+      sensorValue = read_voltage_from_meter();
+      sensorTypeStr = "SinglePhaseMeter";
+      if (sensorValue < 0) {
+        Serial.printf("Channel %d: Failed to read voltage from meter\n", channel);
+        return;  // Skip if read failed
+      }
+      Serial.printf("[Channel %d] Voltage: %.2f V\n", channel, sensorValue);
+      break;
+      
+    case VibratingWire:
+      // TODO: Implement vibrating wire reading
+      sensorValue = generateRandomFloat(7000, 8000);
+      sensorTypeStr = "VibratingWire";
+      break;
+      
+    case Barometric:
+      // TODO: Implement barometric sensor reading
+      sensorValue = generateRandomFloat(950, 1050);
+      sensorTypeStr = "Barometric";
+      break;
+      
+    default:
+      Serial.printf("Channel %d: Unknown sensor type\n", channel);
       return;
-    }
   }
-
-  File dataFile = SD.open(filename, FILE_APPEND);
-  if (dataFile) {
-
-    // dummy data
-    float frequency = generateRandomFloat(7000, 8000);
-    float temperature = generateRandomFloat(25, 30);
-    
-    String data = timestamp + "," + String(frequency) + "," + String(temperature);
-
-    dataFile.println(data);
-    dataFile.close();
-    unsigned long endTime = millis(); // End timing
-  } else {
-    Serial.println("Failed to open file for writing");
-  }
-
-  // update latest data in dataconfig
+  
+  // Publish directly to MQTT (no SD card)
+  publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
+  
+  // Update latest data in dataconfig
   time_t now;
   time(&now);  // Get the current time as time_t (epoch time)
   dataConfig.time[channel] = now;
-
 }
 
 void logDataTask(void *parameter) {
   while (true) {
-    unsigned long currentTime = millis() / 60000; // Convert milliseconds to minutes
+    unsigned long currentTime = millis() / 1000; // Convert milliseconds to seconds
 
     for (int i = 0; i < CHANNEL_COUNT; i++) {
       if (dataConfig.enabled[i] && (currentTime - lastLogTime[i] >= dataConfig.interval[i])) {
@@ -70,16 +77,26 @@ void logDataTask(void *parameter) {
 
 void log_data_init() {
 
-  Serial.println("Initializing data logging.");
-  // Prepare data folder for logging
-  if (!SD.exists("/data")) {
-    SD.mkdir("/data");
-    Serial.println("Created /data directory on SD card.");
+  Serial.println("Initializing data logging (MQTT mode - no SD card).");
+  
+  // Initialize single phase meter if any channel uses it
+  bool hasSinglePhaseMeter = false;
+  for (int i = 0; i < CHANNEL_COUNT; i++) {
+    if (dataConfig.enabled[i] && dataConfig.type[i] == SinglePhaseMeter) {
+      hasSinglePhaseMeter = true;
+      break;
+    }
+  }
+  
+  if (hasSinglePhaseMeter) {
+    single_phase_meter_init();
   }
 
+  // Print enabled channels
   for (int i = 0; i < CHANNEL_COUNT; i++) {
     if (dataConfig.enabled[i]) {
-      Serial.print("Channel: "); Serial.println(i);
+      Serial.printf("Channel %d: Enabled, Type: %d, Interval: %d minutes\n", 
+                    i, dataConfig.type[i], dataConfig.interval[i]);
     }
   }
 
@@ -91,6 +108,6 @@ void log_data_init() {
     1,                  // Priority of the task
     NULL                // Task handle
   );
-  Serial.println("Added Data Logging Task.");
+  Serial.println("Added Data Logging Task (MQTT direct mode).");
 
 }

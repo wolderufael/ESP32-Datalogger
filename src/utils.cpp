@@ -21,38 +21,47 @@ void spiffs_init(){
  *                                                                *
  ******************************************************************/
 
+// Function to reconnect to WiFi
+void wifi_reconnect() {
+    if (WiFi.status() == WL_CONNECTED) {
+        return; // Already connected
+    }
+    
+    Serial.println("Attempting to reconnect to WiFi...");
+    WiFi.disconnect();
+    delay(100);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.begin(systemConfig.WIFI_SSID, systemConfig.WIFI_PASSWORD);
+    
+    // Wait for connection with longer timeout
+    int i = 0;
+    while (WiFi.status() != WL_CONNECTED && i < 20) {
+        delay(500);
+        Serial.print(".");
+        i++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println();
+        Serial.println("WiFi reconnected! IP address: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println();
+        Serial.println("WiFi reconnection failed. Will try again later.");
+    }
+}
+
 // Function to connect to WiFi
 void wifi_init(){
 
     WiFi.mode(WIFI_AP_STA);
-
-    Serial.print("Connecting to WiFi");
-    WiFi.begin(systemConfig.WIFI_SSID, systemConfig.WIFI_PASSWORD);
-
-    // Wait for connection
-    int i = 0;
-    while (WiFi.status() != WL_CONNECTED) {
-      i++;
-        delay(1000);
-        Serial.print(".");
-        if(i > 10){
-          break;
-        }
-    }
-
-    // Print local IP address
-    if(WiFi.status() != WL_CONNECTED){
-      Serial.println();
-      Serial.println("Connected to WiFi. IP address: ");
-      Serial.println(WiFi.localIP());
-    }
-    else{
-      Serial.println("NOT Connected to WiFi. Will keep trying.");
-    }
-
-    // Set up Access Point (AP)
+    
+    // Increase WiFi power for better range
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);  // Maximum power
+    
+    // Set up Access Point first (so it's always available)
     Serial.print("Setting up AP...");
-    bool ap_started = WiFi.softAP(systemConfig.DEVICE_NAME, "SenseLynk101");
+    bool ap_started = WiFi.softAP(systemConfig.DEVICE_NAME, "SenseLynk101", 1, 0, 4);
     if(ap_started){
         Serial.println("AP started");
         Serial.printf("AP SSID: %s\n", systemConfig.DEVICE_NAME);
@@ -63,6 +72,53 @@ void wifi_init(){
         Serial.println("Failed to start AP");
     }
 
+    // Now try to connect to WiFi network
+    if (strlen(systemConfig.WIFI_SSID) > 0) {
+        Serial.print("Connecting to WiFi");
+        WiFi.begin(systemConfig.WIFI_SSID, systemConfig.WIFI_PASSWORD);
+
+        // Wait for connection with longer timeout
+        int i = 0;
+        while (WiFi.status() != WL_CONNECTED) {
+            i++;
+            delay(1000);
+            Serial.print(".");
+            if(i > 15){  // Increased timeout
+                break;
+            }
+        }
+
+        // Print local IP address
+        if(WiFi.status() == WL_CONNECTED){
+            Serial.println();
+            Serial.println("Connected to WiFi. IP address: ");
+            Serial.println(WiFi.localIP());
+        }
+        else{
+            Serial.println();
+            Serial.println("NOT Connected to WiFi. Will keep trying in background.");
+        }
+    } else {
+        Serial.println("No WiFi credentials configured. Using AP mode only.");
+    }
+}
+
+// Background task to maintain WiFi connection
+void wifiKeepaliveTask(void *parameter) {
+    unsigned long lastReconnectAttempt = 0;
+    const unsigned long reconnectInterval = 30000; // Try every 30 seconds
+    
+    while (true) {
+        // Only try to reconnect if we have WiFi credentials and we're not connected
+        if (strlen(systemConfig.WIFI_SSID) > 0 && WiFi.status() != WL_CONNECTED) {
+            unsigned long now = millis();
+            if (now - lastReconnectAttempt > reconnectInterval) {
+                lastReconnectAttempt = now;
+                wifi_reconnect();
+            }
+        }
+        vTaskDelay(5000 / portTICK_PERIOD_MS); // Check every 5 seconds
+    }
 }
 
 /******************************************************************

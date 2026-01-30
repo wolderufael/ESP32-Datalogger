@@ -11,6 +11,9 @@ struct SystemConfig {
   char WIFI_SSID[32];       // Adjust size as needed
   char WIFI_PASSWORD[32];   // Adjust size as needed
   char DEVICE_NAME[16];     // Adjust size as needed
+  char MQTT_SERVER[32];     // MQTT broker IP address
+  char MQTT_USER[32];       // MQTT username
+  char MQTT_PASSWORD[32];   // MQTT password
   int LORA_MODE;
   int utcOffset;            // UTC offset in hours
   uint32_t PAIRING_KEY;
@@ -23,6 +26,7 @@ enum SensorType : uint8_t {
   GeoPhone,
   Inclinometer,
   RainGauege,
+  SinglePhaseMeter,
 };
 
   // DO I NEED TO KNOW THE PIN?
@@ -47,6 +51,7 @@ extern SystemConfig systemConfig;
 extern DataCollectionConfig dataConfig;
 
 void load_system_configuration();
+void clear_system_configuration();
 void update_system_configuration(String key, String value);
 void loadDataConfigFromPreferences();
 void updateDataCollectionConfiguration(int channel, String key, int value);

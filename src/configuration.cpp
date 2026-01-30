@@ -5,6 +5,9 @@
 #include "LoRaLite.h"
 #include "utils.h"
 
+// Forward declaration
+void wifi_reconnect();
+
 Preferences preferences;
 
 /******************************************************************
@@ -43,19 +46,35 @@ Preferences preferences;
 
 SystemConfig systemConfig;
 
+// Function to clear saved system configuration
+void clear_system_configuration() {
+  preferences.begin("configurations", false);
+  preferences.remove("sysconfig");
+  preferences.end();
+  Serial.println("System configuration cleared. Will use default values on next boot.");
+}
+
 void load_system_configuration() {
   Serial.println("\n*** System Configuration ***");
 
   preferences.begin("configurations", false);
+
+  // Clear saved config to use new default WiFi credentials
+  // Remove this line after first boot to keep your settings
+  preferences.remove("sysconfig");
 
   if (preferences.isKey("sysconfig")) {
     preferences.getBytes("sysconfig", &systemConfig, sizeof(systemConfig));
   } else {
     Serial.println("Configuration not found. Using default values.");
 
-    strncpy(systemConfig.WIFI_SSID, "Verizon_F4ZD39", sizeof(systemConfig.WIFI_SSID) - 1);
-    strncpy(systemConfig.WIFI_PASSWORD, "aft9-grid-knot", sizeof(systemConfig.WIFI_PASSWORD) - 1);
+    strncpy(systemConfig.WIFI_SSID, "HUAWEI-B311-70C1", sizeof(systemConfig.WIFI_SSID) - 1);
+    strncpy(systemConfig.WIFI_PASSWORD, "19551955", sizeof(systemConfig.WIFI_PASSWORD) - 1);
     strncpy(systemConfig.DEVICE_NAME, "DEFAULT", sizeof(systemConfig.DEVICE_NAME) - 1);
+    // Default MQTT server - update to match your network (192.168.8.x)
+    strncpy(systemConfig.MQTT_SERVER, "192.168.8.1", sizeof(systemConfig.MQTT_SERVER) - 1);
+    strncpy(systemConfig.MQTT_USER, "senselynk", sizeof(systemConfig.MQTT_USER) - 1);
+    strncpy(systemConfig.MQTT_PASSWORD, "senselynk", sizeof(systemConfig.MQTT_PASSWORD) - 1);
 
     systemConfig.utcOffset = -5;
     systemConfig.LORA_MODE = LORA_GATEWAY;
@@ -71,6 +90,8 @@ void load_system_configuration() {
   Serial.printf("Device Name: %s\n", systemConfig.DEVICE_NAME);
   Serial.printf("WIFI_SSID: %s\n", systemConfig.WIFI_SSID);
   Serial.printf("WIFI_PASSWORD: %s\n", systemConfig.WIFI_PASSWORD);
+  Serial.printf("MQTT Server: %s\n", systemConfig.MQTT_SERVER);
+  Serial.printf("MQTT User: %s\n", systemConfig.MQTT_USER);
   Serial.printf("Boot as: %s\n", systemConfig.LORA_MODE ? "Gateway" : "Node");
   Serial.printf("PAIRING_KEY: %lu\n", systemConfig.PAIRING_KEY);
   Serial.printf("utcOffset: %d\n", systemConfig.utcOffset);
@@ -106,6 +127,18 @@ void update_system_configuration(String key, String value) {
     }
     strncpy(systemConfig.DEVICE_NAME, value.c_str(), sizeof(systemConfig.DEVICE_NAME) - 1);
     systemConfig.DEVICE_NAME[sizeof(systemConfig.DEVICE_NAME) - 1] = '\0';
+  } else if (key.equals("MQTT_SERVER")) {
+    strncpy(systemConfig.MQTT_SERVER, value.c_str(), sizeof(systemConfig.MQTT_SERVER) - 1);
+    systemConfig.MQTT_SERVER[sizeof(systemConfig.MQTT_SERVER) - 1] = '\0';
+    // Reinitialize MQTT with new server
+    extern void mqtt_reinit();
+    mqtt_reinit();
+  } else if (key.equals("MQTT_USER")) {
+    strncpy(systemConfig.MQTT_USER, value.c_str(), sizeof(systemConfig.MQTT_USER) - 1);
+    systemConfig.MQTT_USER[sizeof(systemConfig.MQTT_USER) - 1] = '\0';
+  } else if (key.equals("MQTT_PASSWORD")) {
+    strncpy(systemConfig.MQTT_PASSWORD, value.c_str(), sizeof(systemConfig.MQTT_PASSWORD) - 1);
+    systemConfig.MQTT_PASSWORD[sizeof(systemConfig.MQTT_PASSWORD) - 1] = '\0';
   } else if (key.equals("UTC_OFFSET")) {
     systemConfig.utcOffset = value.toInt();
   } else if (key.equals("LORA_MODE")) {
@@ -120,6 +153,12 @@ void update_system_configuration(String key, String value) {
   preferences.putBytes("sysconfig", &systemConfig, sizeof(systemConfig));
 
   preferences.end();
+
+  // If WiFi credentials were updated, reconnect WiFi
+  if (key.equals("WIFI_SSID") || key.equals("WIFI_PASSWORD")) {
+    Serial.println("WiFi credentials updated. Reconnecting...");
+    wifi_reconnect();
+  }
 
   // load_system_configuration(); // reload configuration
   // saveSystemConfigToSD();
