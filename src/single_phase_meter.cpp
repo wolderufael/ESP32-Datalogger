@@ -5,10 +5,12 @@ ModbusMaster modbusNode;
 // Callback to switch MAX485 to Transmit mode
 void preTransmission() {
   digitalWrite(RE_DE, HIGH);
+  delayMicroseconds(100);
 }
 
 // Callback to switch MAX485 to Receive mode
 void postTransmission() {
+  delayMicroseconds(100);
   digitalWrite(RE_DE, LOW);
 }
 
@@ -33,7 +35,7 @@ void single_phase_meter_init() {
 }
 
 float read_voltage_from_meter() {
-  uint8_t result = modbusNode.readInputRegisters(VOLTAGE_REGISTER, 1);
+  uint8_t result = modbusNode.readHoldingRegisters(VOLTAGE_REGISTER, 1);
   
   if (result == modbusNode.ku8MBSuccess) {
     uint16_t rawValue = modbusNode.getResponseBuffer(0);
@@ -49,7 +51,8 @@ float read_voltage_from_meter() {
 }
 
 bool is_meter_connected() {
-  uint8_t result = modbusNode.readInputRegisters(VOLTAGE_REGISTER, 1);
+  //uint8_t result = modbusNode.readInputRegisters(VOLTAGE_REGISTER, 1);
+  uint8_t result = modbusNode.readHoldingRegisters(VOLTAGE_REGISTER, 1);
   return (result == modbusNode.ku8MBSuccess);
 }
 

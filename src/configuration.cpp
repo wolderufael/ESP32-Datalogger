@@ -68,11 +68,14 @@ void load_system_configuration() {
   } else {
     Serial.println("Configuration not found. Using default values.");
 
-    strncpy(systemConfig.WIFI_SSID, "HUAWEI-B311-70C1", sizeof(systemConfig.WIFI_SSID) - 1);
-    strncpy(systemConfig.WIFI_PASSWORD, "19551955", sizeof(systemConfig.WIFI_PASSWORD) - 1);
+    //strncpy(systemConfig.WIFI_SSID, "HUAWEI-B311-70C1", sizeof(systemConfig.WIFI_SSID) - 1);
+    strncpy(systemConfig.WIFI_SSID, "dlink_DWR-930M_B30F", sizeof(systemConfig.WIFI_SSID) - 1);
+   // strncpy(systemConfig.WIFI_PASSWORD, "19551955", sizeof(systemConfig.WIFI_PASSWORD) - 1);
+    strncpy(systemConfig.WIFI_PASSWORD, "eccf6c39", sizeof(systemConfig.WIFI_PASSWORD) - 1);
     strncpy(systemConfig.DEVICE_NAME, "DEFAULT", sizeof(systemConfig.DEVICE_NAME) - 1);
     // Default MQTT server - update to match your network (192.168.8.x)
-    strncpy(systemConfig.MQTT_SERVER, "192.168.8.1", sizeof(systemConfig.MQTT_SERVER) - 1);
+    //strncpy(systemConfig.MQTT_SERVER, "192.168.8.1", sizeof(systemConfig.MQTT_SERVER) - 1);
+    strncpy(systemConfig.MQTT_SERVER, "192.168.1.52", sizeof(systemConfig.MQTT_SERVER) - 1);
     strncpy(systemConfig.MQTT_USER, "senselynk", sizeof(systemConfig.MQTT_USER) - 1);
     strncpy(systemConfig.MQTT_PASSWORD, "senselynk", sizeof(systemConfig.MQTT_PASSWORD) - 1);
 
