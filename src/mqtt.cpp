@@ -4,6 +4,7 @@
 // #include <SD.h>  // Disabled - no SD card needed
 #include "configuration.h"
 #include "srne_inverter.h"
+#include "single_phase_meter.h"
 // #include "LoRaLite.h"  // Disabled - no LoRa needed
 
 // MQTT credentials - now loaded from systemConfig
@@ -448,6 +449,42 @@ bool publish_srne_inverter_data(int channel, const char* timestamp) {
     return true;
   } else {
     Serial.printf("Failed to publish SRNE inverter data for channel %d\n", channel);
+    return false;
+  }
+}
+
+bool publish_single_phase_meter_data(int channel, const char* timestamp) {
+  if (!client.connected()) {
+    mqtt_reconnect();
+  }
+  client.loop();
+  
+  SinglePhaseMeterData data;
+  if (!read_single_phase_meter_data(&data)) {
+    Serial.printf("Channel %d: Failed to read single phase meter data\n", channel);
+    return false;
+  }
+  
+  // Create JSON payload with all meter data
+  String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
+  String payload = "{";
+  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
+  payload += "\"channel\":" + String(channel) + ",";
+  payload += "\"sensorType\":\"SinglePhaseMeter\",";
+  payload += "\"timestamp\":\"" + String(timestamp) + "\",";
+  payload += "\"data\":{";
+  payload += "\"voltage\":" + String(data.voltage, 2) + ",";
+  payload += "\"current\":" + String(data.current, 2) + ",";
+  payload += "\"frequency\":" + String(data.frequency, 2);
+  payload += "}";
+  payload += "}";
+  
+  if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
+    Serial.printf("Published Single Phase Meter data: Channel %d, Voltage: %.2fV, Current: %.2fA, Frequency: %.2fHz\n", 
+                  channel, data.voltage, data.current, data.frequency);
+    return true;
+  } else {
+    Serial.printf("Failed to publish single phase meter data for channel %d\n", channel);
     return false;
   }
 }

@@ -27,15 +27,12 @@ void logDataFunction(int channel, String timestamp) {
   // Read sensor data based on sensor type
   switch (dataConfig.type[channel]) {
     case SinglePhaseMeter:
-      sensorValue = read_voltage_from_meter();
       sensorTypeStr = "SinglePhaseMeter";
-      if (sensorValue < 0) {
-        Serial.printf("Channel %d: Failed to read voltage from meter\n", channel);
-        return;  // Skip if read failed
+      // Publish all meter data as JSON
+      if (!publish_single_phase_meter_data(channel, timestamp.c_str())) {
+        Serial.printf("Channel %d: Failed to read/publish single phase meter data\n", channel);
+        return;  // Skip if read/publish failed
       }
-      Serial.printf("[Channel %d] Voltage: %.2f V\n", channel, sensorValue);
-      // Publish directly to MQTT (no SD card)
-      publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
       break;
       
     case SRNEInverter:

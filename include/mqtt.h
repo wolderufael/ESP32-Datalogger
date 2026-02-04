@@ -8,3 +8,4 @@ bool mqtt_process_folder(String folderPath, String extension);
 void publish_system_status();
 bool publish_sensor_data(int channel, const char* sensorType, float value, const char* timestamp);
 bool publish_srne_inverter_data(int channel, const char* timestamp);
+bool publish_single_phase_meter_data(int channel, const char* timestamp);

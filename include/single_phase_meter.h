@@ -12,12 +12,24 @@
 // Modbus Configuration
 #define MODBUS_SLAVE_ID 1
 #define MODBUS_BAUD_RATE 9600
-//#define VOLTAGE_REGISTER 0x000B // Register address for voltage
-#define VOLTAGE_REGISTER 0x0100  // Register address for voltage
+
+// Register addresses (Holding Registers)
+#define SINGLE_PHASE_REG_VOLTAGE 0x000B
+#define SINGLE_PHASE_REG_CURRENT 0x000E
+#define SINGLE_PHASE_REG_FREQUENCY 0x0011
+
+// Data structure to hold all single phase meter readings
+struct SinglePhaseMeterData {
+  float voltage;
+  float current;
+  float frequency;
+  bool is_valid;
+};
 
 // Function declarations
 void single_phase_meter_init();
-float read_voltage_from_meter();
+float read_voltage_from_meter();  // Legacy function for backward compatibility
+bool read_single_phase_meter_data(SinglePhaseMeterData* data);
 bool is_meter_connected();
 
 extern ModbusMaster modbusNode;
