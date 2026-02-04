@@ -5,6 +5,7 @@
 #include "configuration.h"
 #include "utils.h"
 #include "single_phase_meter.h"
+#include "srne_inverter.h"
 #include "mqtt.h"
 
 // Sensor Libs
@@ -33,27 +34,39 @@ void logDataFunction(int channel, String timestamp) {
         return;  // Skip if read failed
       }
       Serial.printf("[Channel %d] Voltage: %.2f V\n", channel, sensorValue);
+      // Publish directly to MQTT (no SD card)
+      publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
+      break;
+      
+    case SRNEInverter:
+      sensorTypeStr = "SRNEInverter";
+      // Publish all inverter data as JSON
+      if (!publish_srne_inverter_data(channel, timestamp.c_str())) {
+        Serial.printf("Channel %d: Failed to read/publish SRNE inverter data\n", channel);
+        return;  // Skip if read/publish failed
+      }
       break;
       
     case VibratingWire:
       // TODO: Implement vibrating wire reading
       sensorValue = generateRandomFloat(7000, 8000);
       sensorTypeStr = "VibratingWire";
+      // Publish directly to MQTT (no SD card)
+      publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
       break;
       
     case Barometric:
       // TODO: Implement barometric sensor reading
       sensorValue = generateRandomFloat(950, 1050);
       sensorTypeStr = "Barometric";
+      // Publish directly to MQTT (no SD card)
+      publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
       break;
       
     default:
       Serial.printf("Channel %d: Unknown sensor type\n", channel);
       return;
   }
-  
-  // Publish directly to MQTT (no SD card)
-  publish_sensor_data(channel, sensorTypeStr, sensorValue, timestamp.c_str());
   
   // Update latest data in dataconfig
   time_t now;
@@ -90,6 +103,19 @@ void log_data_init() {
   
   if (hasSinglePhaseMeter) {
     single_phase_meter_init();
+  }
+  
+  // Initialize SRNE inverter if any channel uses it
+  bool hasSRNEInverter = false;
+  for (int i = 0; i < CHANNEL_COUNT; i++) {
+    if (dataConfig.enabled[i] && dataConfig.type[i] == SRNEInverter) {
+      hasSRNEInverter = true;
+      break;
+    }
+  }
+  
+  if (hasSRNEInverter) {
+    srne_inverter_init();
   }
 
   // Print enabled channels

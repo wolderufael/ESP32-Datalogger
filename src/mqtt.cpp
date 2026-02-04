@@ -3,6 +3,7 @@
 #include <Wire.h>
 // #include <SD.h>  // Disabled - no SD card needed
 #include "configuration.h"
+#include "srne_inverter.h"
 // #include "LoRaLite.h"  // Disabled - no LoRa needed
 
 // MQTT credentials - now loaded from systemConfig
@@ -369,6 +370,84 @@ bool publish_sensor_data(int channel, const char* sensorType, float value, const
     return true;
   } else {
     Serial.printf("Failed to publish sensor data for channel %d\n", channel);
+    return false;
+  }
+}
+
+bool publish_srne_inverter_data(int channel, const char* timestamp) {
+  if (!client.connected()) {
+    mqtt_reconnect();
+  }
+  client.loop();
+  
+  SRNEInverterData data;
+  if (!read_srne_inverter_data(&data)) {
+    Serial.printf("Channel %d: Failed to read SRNE inverter data\n", channel);
+    return false;
+  }
+  
+  // Create JSON payload with all inverter data
+  String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
+  String payload = "{";
+  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
+  payload += "\"channel\":" + String(channel) + ",";
+  payload += "\"sensorType\":\"SRNEInverter\",";
+  payload += "\"timestamp\":\"" + String(timestamp) + "\",";
+  payload += "\"data\":{";
+  payload += "\"battery_soc\":" + String(data.battery_soc, 2) + ",";
+  payload += "\"battery_voltage\":" + String(data.battery_voltage, 2) + ",";
+  payload += "\"battery_current\":" + String(data.battery_current, 2) + ",";
+  payload += "\"pv_voltage\":" + String(data.pv_voltage, 2) + ",";
+  payload += "\"pv_current\":" + String(data.pv_current, 2) + ",";
+  payload += "\"pv_power\":" + String(data.pv_power, 2) + ",";
+  payload += "\"battery_charge_power\":" + String(data.battery_charge_power, 2) + ",";
+  payload += "\"battery_type\":" + String(data.battery_type, 2) + ",";
+  payload += "\"battery_over_voltage\":" + String(data.battery_over_voltage, 2) + ",";
+  payload += "\"battery_equalizing_charge_voltage\":" + String(data.battery_equalizing_charge_voltage, 2) + ",";
+  payload += "\"battery_boost_charge_voltage\":" + String(data.battery_boost_charge_voltage, 2) + ",";
+  payload += "\"battery_float_charge_voltage\":" + String(data.battery_float_charge_voltage, 2) + ",";
+  payload += "\"over_discharge_delay_time\":" + String(data.over_discharge_delay_time, 2) + ",";
+  payload += "\"battery_equalizing_charge_time\":" + String(data.battery_equalizing_charge_time, 2) + ",";
+  payload += "\"battery_equalizing_interval\":" + String(data.battery_equalizing_interval, 2) + ",";
+  payload += "\"battery_under_voltage_warning\":" + String(data.battery_under_voltage_warning, 2) + ",";
+  payload += "\"battery_over_discharge_voltage\":" + String(data.battery_over_discharge_voltage, 2) + ",";
+  payload += "\"battery_limited_discharge_voltage\":" + String(data.battery_limited_discharge_voltage, 2) + ",";
+  payload += "\"battery_boost_charge_time\":" + String(data.battery_boost_charge_time, 2) + ",";
+  payload += "\"battery_mains_switching_voltage\":" + String(data.battery_mains_switching_voltage, 2) + ",";
+  payload += "\"battery_stop_charging_current\":" + String(data.battery_stop_charging_current, 2) + ",";
+  payload += "\"battery_number_in_series\":" + String(data.battery_number_in_series, 2) + ",";
+  payload += "\"inverter_switch_voltage\":" + String(data.inverter_switch_voltage, 2) + ",";
+  payload += "\"battery_max_charge_current\":" + String(data.battery_max_charge_current, 2) + ",";
+  payload += "\"inverter_output_priority\":" + String(data.inverter_output_priority, 2) + ",";
+  payload += "\"inverter_charge_priority\":" + String(data.inverter_charge_priority, 2) + ",";
+  payload += "\"grid_battery_charge_max_current\":" + String(data.grid_battery_charge_max_current, 2) + ",";
+  payload += "\"inverter_charger_priority\":" + String(data.inverter_charger_priority, 2) + ",";
+  payload += "\"inverter_alarm_control\":" + String(data.inverter_alarm_control, 2) + ",";
+  payload += "\"machine_state\":" + String(data.machine_state, 2) + ",";
+  payload += "\"total_running_days\":" + String(data.total_running_days, 2) + ",";
+  payload += "\"grid_voltage\":" + String(data.grid_voltage, 2) + ",";
+  payload += "\"grid_input_current\":" + String(data.grid_input_current, 2) + ",";
+  payload += "\"grid_frequency\":" + String(data.grid_frequency, 2) + ",";
+  payload += "\"inverter_voltage\":" + String(data.inverter_voltage, 2) + ",";
+  payload += "\"inverter_current\":" + String(data.inverter_current, 2) + ",";
+  payload += "\"inverter_frequency\":" + String(data.inverter_frequency, 2) + ",";
+  payload += "\"load_current\":" + String(data.load_current, 2) + ",";
+  payload += "\"inverter_power\":" + String(data.inverter_power, 2) + ",";
+  payload += "\"inverter_apparent_power\":" + String(data.inverter_apparent_power, 2) + ",";
+  payload += "\"grid_battery_charge_current\":" + String(data.grid_battery_charge_current, 2) + ",";
+  payload += "\"temp_dc\":" + String(data.temp_dc, 2) + ",";
+  payload += "\"temp_ac\":" + String(data.temp_ac, 2) + ",";
+  payload += "\"temp_tr\":" + String(data.temp_tr, 2) + ",";
+  payload += "\"pv_battery_charge_current\":" + String(data.pv_battery_charge_current, 2);
+  payload += "}";
+  payload += "}";
+  
+  if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
+    Serial.printf("Published SRNE Inverter data: Channel %d, Battery SOC: %.2f%%, Battery Voltage: %.2fV\n", 
+                  channel, data.battery_soc, data.battery_voltage);
+    return true;
+  } else {
+    Serial.printf("Failed to publish SRNE inverter data for channel %d\n", channel);
     return false;
   }
 }

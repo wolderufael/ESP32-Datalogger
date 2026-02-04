@@ -27,6 +27,7 @@ enum SensorType : uint8_t {
   Inclinometer,
   RainGauege,
   SinglePhaseMeter,
+  SRNEInverter,
 };
 
   // DO I NEED TO KNOW THE PIN?
