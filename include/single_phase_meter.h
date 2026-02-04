@@ -28,6 +28,9 @@ struct SinglePhaseMeterData {
 
 // Function declarations
 void single_phase_meter_init();
+float read_voltage_register();    // Read voltage register (multiplier: 0.1)
+float read_current_register();   // Read current register (multiplier: 0.1)
+float read_frequency_register(); // Read frequency register (multiplier: 0.01)
 float read_voltage_from_meter();  // Legacy function for backward compatibility
 bool read_single_phase_meter_data(SinglePhaseMeterData* data);
 bool is_meter_connected();

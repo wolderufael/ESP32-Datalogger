@@ -5,6 +5,7 @@
 #include "configuration.h"
 #include "srne_inverter.h"
 #include "single_phase_meter.h"
+#include "mqtt_schema.h"
 // #include "LoRaLite.h"  // Disabled - no LoRa needed
 
 // MQTT credentials - now loaded from systemConfig
@@ -348,26 +349,67 @@ void mqttKeepaliveTask(void * parameter) {
  ******************************************************************/
 
 // *********************************************************
-// Publish sensor data directly to MQTT (no SD card)
+// Schema Helper: Build JSON payload from data points
 // *********************************************************
-bool publish_sensor_data(int channel, const char* sensorType, float value, const char* timestamp) {
+String build_sensor_json_payload(int channel, const char* sensorType, const char* timestamp, 
+                                 RegisterDataPoint* dataPoints, int dataPointCount) {
+  String payload = "{";
+  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
+  payload += "\"channel\":" + String(channel) + ",";
+  payload += "\"sensorType\":\"" + String(sensorType) + "\",";
+  payload += "\"timestamp\":\"" + String(timestamp) + "\",";
+  payload += "\"data\":[";
+  
+  for (int i = 0; i < dataPointCount; i++) {
+    if (i > 0) payload += ",";
+    payload += "{";
+    payload += "\"name\":\"" + String(dataPoints[i].name) + "\",";
+    payload += "\"value\":" + String(dataPoints[i].value, 2) + ",";
+    payload += "\"unit\":\"" + String(dataPoints[i].unit) + "\",";
+    payload += "\"timestamp\":\"" + String(dataPoints[i].timestamp) + "\"";
+    payload += "}";
+  }
+  
+  payload += "]";
+  payload += "}";
+  
+  return payload;
+}
+
+// *********************************************************
+// Publish sensor data directly to MQTT (no SD card)
+// Uses schema with single data point
+// *********************************************************
+bool publish_sensor_data(int channel, const char* sensorType, float value, const char* timestamp, const char* unit) {
   if (!client.connected()) {
     mqtt_reconnect();
   }
   client.loop();
   
-  // Create JSON payload
+  // Create single data point with proper name based on sensor type
+  RegisterDataPoint dataPoint;
+  
+  // Set appropriate name based on sensor type
+  if (strcmp(sensorType, "VibratingWire") == 0) {
+    dataPoint.name = "Frequency";
+    dataPoint.unit = (strlen(unit) > 0) ? unit : "Hz";
+  } else if (strcmp(sensorType, "Barometric") == 0) {
+    dataPoint.name = "Pressure";
+    dataPoint.unit = (strlen(unit) > 0) ? unit : "hPa";
+  } else {
+    dataPoint.name = "Value";
+    dataPoint.unit = (strlen(unit) > 0) ? unit : "";
+  }
+  
+  dataPoint.value = value;
+  dataPoint.timestamp = timestamp;
+  
+  // Build JSON using schema
   String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
-  String payload = "{";
-  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
-  payload += "\"channel\":" + String(channel) + ",";
-  payload += "\"sensorType\":\"" + String(sensorType) + "\",";
-  payload += "\"value\":" + String(value, 2) + ",";
-  payload += "\"timestamp\":\"" + String(timestamp) + "\"";
-  payload += "}";
+  String payload = build_sensor_json_payload(channel, sensorType, timestamp, &dataPoint, 1);
   
   if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
-    Serial.printf("Published: Channel %d, Value: %.2f\n", channel, value);
+    Serial.printf("Published: Channel %d, %s: %.2f %s\n", channel, dataPoint.name, value, dataPoint.unit);
     return true;
   } else {
     Serial.printf("Failed to publish sensor data for channel %d\n", channel);
@@ -387,61 +429,59 @@ bool publish_srne_inverter_data(int channel, const char* timestamp) {
     return false;
   }
   
-  // Create JSON payload with all inverter data
+  // Create data points array with schema (name, value, unit, timestamp)
+  RegisterDataPoint dataPoints[46];
+  int idx = 0;
+  
+  dataPoints[idx++] = {"Battery SOC", data.battery_soc, "%", timestamp};
+  dataPoints[idx++] = {"Battery Voltage", data.battery_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Current", data.battery_current, "A", timestamp};
+  dataPoints[idx++] = {"PV Voltage", data.pv_voltage, "V", timestamp};
+  dataPoints[idx++] = {"PV Current", data.pv_current, "A", timestamp};
+  dataPoints[idx++] = {"PV Power", data.pv_power, "W", timestamp};
+  dataPoints[idx++] = {"Battery Charge Power", data.battery_charge_power, "W", timestamp};
+  dataPoints[idx++] = {"Battery Type", data.battery_type, "", timestamp};
+  dataPoints[idx++] = {"Battery Over Voltage", data.battery_over_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Equalizing Charge Voltage", data.battery_equalizing_charge_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Boost Charge Voltage", data.battery_boost_charge_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Float Charge Voltage", data.battery_float_charge_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Over Discharge Delay Time", data.over_discharge_delay_time, "min", timestamp};
+  dataPoints[idx++] = {"Battery Equalizing Charge Time", data.battery_equalizing_charge_time, "min", timestamp};
+  dataPoints[idx++] = {"Battery Equalizing Interval", data.battery_equalizing_interval, "days", timestamp};
+  dataPoints[idx++] = {"Battery Under Voltage Warning", data.battery_under_voltage_warning, "V", timestamp};
+  dataPoints[idx++] = {"Battery Over Discharge Voltage", data.battery_over_discharge_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Limited Discharge Voltage", data.battery_limited_discharge_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Boost Charge Time", data.battery_boost_charge_time, "min", timestamp};
+  dataPoints[idx++] = {"Battery Mains Switching Voltage", data.battery_mains_switching_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Stop Charging Current", data.battery_stop_charging_current, "A", timestamp};
+  dataPoints[idx++] = {"Battery Number in Series", data.battery_number_in_series, "", timestamp};
+  dataPoints[idx++] = {"Inverter Switch Voltage", data.inverter_switch_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Battery Max Charge Current", data.battery_max_charge_current, "A", timestamp};
+  dataPoints[idx++] = {"Inverter Output Priority", data.inverter_output_priority, "", timestamp};
+  dataPoints[idx++] = {"Inverter Charge Priority", data.inverter_charge_priority, "", timestamp};
+  dataPoints[idx++] = {"Grid Battery Charge Max Current", data.grid_battery_charge_max_current, "A", timestamp};
+  dataPoints[idx++] = {"Inverter Charger Priority", data.inverter_charger_priority, "", timestamp};
+  dataPoints[idx++] = {"Inverter Alarm Control", data.inverter_alarm_control, "", timestamp};
+  dataPoints[idx++] = {"Machine State", data.machine_state, "", timestamp};
+  dataPoints[idx++] = {"Total Running Days", data.total_running_days, "days", timestamp};
+  dataPoints[idx++] = {"Grid Voltage", data.grid_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Grid Input Current", data.grid_input_current, "A", timestamp};
+  dataPoints[idx++] = {"Grid Frequency", data.grid_frequency, "Hz", timestamp};
+  dataPoints[idx++] = {"Inverter Voltage", data.inverter_voltage, "V", timestamp};
+  dataPoints[idx++] = {"Inverter Current", data.inverter_current, "A", timestamp};
+  dataPoints[idx++] = {"Inverter Frequency", data.inverter_frequency, "Hz", timestamp};
+  dataPoints[idx++] = {"Load Current", data.load_current, "A", timestamp};
+  dataPoints[idx++] = {"Inverter Power", data.inverter_power, "W", timestamp};
+  dataPoints[idx++] = {"Inverter Apparent Power", data.inverter_apparent_power, "VA", timestamp};
+  dataPoints[idx++] = {"Grid Battery Charge Current", data.grid_battery_charge_current, "A", timestamp};
+  dataPoints[idx++] = {"Temperature DC", data.temp_dc, "°C", timestamp};
+  dataPoints[idx++] = {"Temperature AC", data.temp_ac, "°C", timestamp};
+  dataPoints[idx++] = {"Temperature Transformer", data.temp_tr, "°C", timestamp};
+  dataPoints[idx++] = {"PV Battery Charge Current", data.pv_battery_charge_current, "A", timestamp};
+  
+  // Build JSON using schema
   String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
-  String payload = "{";
-  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
-  payload += "\"channel\":" + String(channel) + ",";
-  payload += "\"sensorType\":\"SRNEInverter\",";
-  payload += "\"timestamp\":\"" + String(timestamp) + "\",";
-  payload += "\"data\":{";
-  payload += "\"battery_soc\":" + String(data.battery_soc, 2) + ",";
-  payload += "\"battery_voltage\":" + String(data.battery_voltage, 2) + ",";
-  payload += "\"battery_current\":" + String(data.battery_current, 2) + ",";
-  payload += "\"pv_voltage\":" + String(data.pv_voltage, 2) + ",";
-  payload += "\"pv_current\":" + String(data.pv_current, 2) + ",";
-  payload += "\"pv_power\":" + String(data.pv_power, 2) + ",";
-  payload += "\"battery_charge_power\":" + String(data.battery_charge_power, 2) + ",";
-  payload += "\"battery_type\":" + String(data.battery_type, 2) + ",";
-  payload += "\"battery_over_voltage\":" + String(data.battery_over_voltage, 2) + ",";
-  payload += "\"battery_equalizing_charge_voltage\":" + String(data.battery_equalizing_charge_voltage, 2) + ",";
-  payload += "\"battery_boost_charge_voltage\":" + String(data.battery_boost_charge_voltage, 2) + ",";
-  payload += "\"battery_float_charge_voltage\":" + String(data.battery_float_charge_voltage, 2) + ",";
-  payload += "\"over_discharge_delay_time\":" + String(data.over_discharge_delay_time, 2) + ",";
-  payload += "\"battery_equalizing_charge_time\":" + String(data.battery_equalizing_charge_time, 2) + ",";
-  payload += "\"battery_equalizing_interval\":" + String(data.battery_equalizing_interval, 2) + ",";
-  payload += "\"battery_under_voltage_warning\":" + String(data.battery_under_voltage_warning, 2) + ",";
-  payload += "\"battery_over_discharge_voltage\":" + String(data.battery_over_discharge_voltage, 2) + ",";
-  payload += "\"battery_limited_discharge_voltage\":" + String(data.battery_limited_discharge_voltage, 2) + ",";
-  payload += "\"battery_boost_charge_time\":" + String(data.battery_boost_charge_time, 2) + ",";
-  payload += "\"battery_mains_switching_voltage\":" + String(data.battery_mains_switching_voltage, 2) + ",";
-  payload += "\"battery_stop_charging_current\":" + String(data.battery_stop_charging_current, 2) + ",";
-  payload += "\"battery_number_in_series\":" + String(data.battery_number_in_series, 2) + ",";
-  payload += "\"inverter_switch_voltage\":" + String(data.inverter_switch_voltage, 2) + ",";
-  payload += "\"battery_max_charge_current\":" + String(data.battery_max_charge_current, 2) + ",";
-  payload += "\"inverter_output_priority\":" + String(data.inverter_output_priority, 2) + ",";
-  payload += "\"inverter_charge_priority\":" + String(data.inverter_charge_priority, 2) + ",";
-  payload += "\"grid_battery_charge_max_current\":" + String(data.grid_battery_charge_max_current, 2) + ",";
-  payload += "\"inverter_charger_priority\":" + String(data.inverter_charger_priority, 2) + ",";
-  payload += "\"inverter_alarm_control\":" + String(data.inverter_alarm_control, 2) + ",";
-  payload += "\"machine_state\":" + String(data.machine_state, 2) + ",";
-  payload += "\"total_running_days\":" + String(data.total_running_days, 2) + ",";
-  payload += "\"grid_voltage\":" + String(data.grid_voltage, 2) + ",";
-  payload += "\"grid_input_current\":" + String(data.grid_input_current, 2) + ",";
-  payload += "\"grid_frequency\":" + String(data.grid_frequency, 2) + ",";
-  payload += "\"inverter_voltage\":" + String(data.inverter_voltage, 2) + ",";
-  payload += "\"inverter_current\":" + String(data.inverter_current, 2) + ",";
-  payload += "\"inverter_frequency\":" + String(data.inverter_frequency, 2) + ",";
-  payload += "\"load_current\":" + String(data.load_current, 2) + ",";
-  payload += "\"inverter_power\":" + String(data.inverter_power, 2) + ",";
-  payload += "\"inverter_apparent_power\":" + String(data.inverter_apparent_power, 2) + ",";
-  payload += "\"grid_battery_charge_current\":" + String(data.grid_battery_charge_current, 2) + ",";
-  payload += "\"temp_dc\":" + String(data.temp_dc, 2) + ",";
-  payload += "\"temp_ac\":" + String(data.temp_ac, 2) + ",";
-  payload += "\"temp_tr\":" + String(data.temp_tr, 2) + ",";
-  payload += "\"pv_battery_charge_current\":" + String(data.pv_battery_charge_current, 2);
-  payload += "}";
-  payload += "}";
+  String payload = build_sensor_json_payload(channel, "SRNEInverter", timestamp, dataPoints, 46);
   
   if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
     Serial.printf("Published SRNE Inverter data: Channel %d, Battery SOC: %.2f%%, Battery Voltage: %.2fV\n", 
@@ -465,19 +505,15 @@ bool publish_single_phase_meter_data(int channel, const char* timestamp) {
     return false;
   }
   
-  // Create JSON payload with all meter data
+  // Create data points array with schema (name, value, unit, timestamp)
+  RegisterDataPoint dataPoints[3];
+  dataPoints[0] = {"Voltage", data.voltage, "V", timestamp};
+  dataPoints[1] = {"Current", data.current, "A", timestamp};
+  dataPoints[2] = {"Frequency", data.frequency, "Hz", timestamp};
+  
+  // Build JSON using schema
   String topic = String(systemConfig.DEVICE_NAME) + "/sensor/" + String(channel);
-  String payload = "{";
-  payload += "\"device\":\"" + String(systemConfig.DEVICE_NAME) + "\",";
-  payload += "\"channel\":" + String(channel) + ",";
-  payload += "\"sensorType\":\"SinglePhaseMeter\",";
-  payload += "\"timestamp\":\"" + String(timestamp) + "\",";
-  payload += "\"data\":{";
-  payload += "\"voltage\":" + String(data.voltage, 2) + ",";
-  payload += "\"current\":" + String(data.current, 2) + ",";
-  payload += "\"frequency\":" + String(data.frequency, 2);
-  payload += "}";
-  payload += "}";
+  String payload = build_sensor_json_payload(channel, "SinglePhaseMeter", timestamp, dataPoints, 3);
   
   if (safe_mqtt_publish(topic.c_str(), payload.c_str())) {
     Serial.printf("Published Single Phase Meter data: Channel %d, Voltage: %.2fV, Current: %.2fA, Frequency: %.2fHz\n", 
